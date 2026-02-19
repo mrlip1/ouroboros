@@ -284,6 +284,22 @@ def checkout_and_reset(branch: str, reason: str = "unspecified",
                 },
             )
 
+    rc_verify = subprocess.run(
+        ["git", "rev-parse", "--verify", f"origin/{branch}"],
+        cwd=str(REPO_DIR), capture_output=True,
+    ).returncode
+    if rc_verify != 0:
+        msg = f"Branch {branch} not found on remote"
+        append_jsonl(
+            DRIVE_ROOT / "logs" / "supervisor.jsonl",
+            {
+                "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "type": "reset_branch_missing",
+                "target_branch": branch, "reason": reason,
+            },
+        )
+        return False, msg
+
     subprocess.run(["git", "checkout", branch], cwd=str(REPO_DIR), check=True)
     subprocess.run(["git", "reset", "--hard", f"origin/{branch}"], cwd=str(REPO_DIR), check=True)
     # Clean __pycache__ to prevent stale bytecode (git checkout may not update mtime)

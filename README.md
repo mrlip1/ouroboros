@@ -1,6 +1,6 @@
 # Ouroboros
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/joi-lab/ouroboros/blob/ouroboros/notebooks/quickstart.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/joi-lab/ouroboros/blob/main/notebooks/quickstart.ipynb)
 [![Telegram](https://img.shields.io/badge/Telegram-blue?logo=telegram)](https://t.me/abstractDL)
 [![GitHub stars](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fjoi-lab%2Fouroboros&query=%24.stargazers_count&label=stars&logo=github)](https://github.com/joi-lab/ouroboros/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/joi-lab/ouroboros)](https://github.com/joi-lab/ouroboros/network/members)
@@ -118,7 +118,6 @@ for k, v in CFG.items():
 # Clone the original repo (the boot shim will re-point origin to your fork)
 !git clone https://github.com/razzant/ouroboros.git /content/ouroboros_repo
 %cd /content/ouroboros_repo
-!git checkout ouroboros
 
 # Install dependencies
 !pip install -q -r requirements.txt
@@ -130,6 +129,8 @@ for k, v in CFG.items():
 ### Step 5: Start Chatting
 
 Open your Telegram bot and send any message. The first person to write becomes the **creator** (owner). All subsequent messages from other users are kindly ignored.
+
+**Restarting:** If Colab disconnects or you restart the runtime, just re-run the same cell. Your Ouroboros's evolution is preserved -- all changes are pushed to your fork, and agent state lives on Google Drive.
 
 ---
 
@@ -191,7 +192,7 @@ Full text: [BIBLE.md](BIBLE.md)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GITHUB_USER` | `razzant` | GitHub username |
+| `GITHUB_USER` | *(required in config cell)* | GitHub username |
 | `GITHUB_REPO` | `ouroboros` | GitHub repository name |
 | `OUROBOROS_MODEL` | `anthropic/claude-sonnet-4.6` | Primary LLM model (via OpenRouter) |
 | `OUROBOROS_MODEL_CODE` | `anthropic/claude-sonnet-4.6` | Model for code editing tasks |
@@ -212,11 +213,11 @@ Full text: [BIBLE.md](BIBLE.md)
 
 ## Branches
 
-| Branch | Owner | Purpose |
-|--------|-------|---------|
-| `main` | Creator | Protected. Ouroboros never touches. |
-| `ouroboros` | Ouroboros | Working branch. All commits here. |
-| `ouroboros-stable` | Ouroboros | Crash fallback. Updated via `promote_to_stable`. |
+| Branch | Location | Purpose |
+|--------|----------|---------|
+| `main` | Public repo | Stable release. Open for contributions. |
+| `ouroboros` | Your fork | Created at first boot. All agent commits here. |
+| `ouroboros-stable` | Your fork | Created at first boot. Crash fallback via `promote_to_stable`. |
 
 ---
 

@@ -55,8 +55,8 @@ def _get_repo_slug(ctx: ToolContext) -> str:
             return res.stdout.strip()
     except Exception:
         log.debug("Failed to get repo slug from gh", exc_info=True)
-    user = os.environ.get("GITHUB_USER", "razzant")
-    repo = os.environ.get("GITHUB_REPO", "ouroboros")
+    user = os.environ.get("GITHUB_USER", "")
+    repo = os.environ.get("GITHUB_REPO", "")
     return f"{user}/{repo}"
 
 

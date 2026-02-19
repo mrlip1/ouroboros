@@ -49,8 +49,10 @@ os.environ.setdefault("OUROBOROS_DIAG_SLOW_CYCLE_SEC", "20")
 os.environ.setdefault("PYTHONUNBUFFERED", "1")
 
 GITHUB_TOKEN = str(os.environ["GITHUB_TOKEN"])
-GITHUB_USER = str(os.environ.get("GITHUB_USER", "razzant"))
-GITHUB_REPO = str(os.environ.get("GITHUB_REPO", "ouroboros"))
+GITHUB_USER = os.environ.get("GITHUB_USER", "").strip()
+GITHUB_REPO = os.environ.get("GITHUB_REPO", "").strip()
+assert GITHUB_USER, "GITHUB_USER not set. Add it to your config cell (see README)."
+assert GITHUB_REPO, "GITHUB_REPO not set. Add it to your config cell (see README)."
 BOOT_BRANCH = str(os.environ.get("OUROBOROS_BOOT_BRANCH", "ouroboros"))
 
 REPO_DIR = pathlib.Path("/content/ouroboros_repo").resolve()
@@ -63,8 +65,24 @@ else:
     subprocess.run(["git", "remote", "set-url", "origin", REMOTE_URL], cwd=str(REPO_DIR), check=True)
 
 subprocess.run(["git", "fetch", "origin"], cwd=str(REPO_DIR), check=True)
-subprocess.run(["git", "checkout", BOOT_BRANCH], cwd=str(REPO_DIR), check=True)
-subprocess.run(["git", "reset", "--hard", f"origin/{BOOT_BRANCH}"], cwd=str(REPO_DIR), check=True)
+
+# Check if BOOT_BRANCH exists on the fork's remote.
+# New forks (from the main-only public repo) won't have it yet.
+_rc = subprocess.run(
+    ["git", "rev-parse", "--verify", f"origin/{BOOT_BRANCH}"],
+    cwd=str(REPO_DIR), capture_output=True,
+).returncode
+
+if _rc == 0:
+    subprocess.run(["git", "checkout", BOOT_BRANCH], cwd=str(REPO_DIR), check=True)
+    subprocess.run(["git", "reset", "--hard", f"origin/{BOOT_BRANCH}"], cwd=str(REPO_DIR), check=True)
+else:
+    print(f"[boot] branch {BOOT_BRANCH} not found on fork — creating from origin/main")
+    subprocess.run(["git", "checkout", "-b", BOOT_BRANCH, "origin/main"], cwd=str(REPO_DIR), check=True)
+    subprocess.run(["git", "push", "-u", "origin", BOOT_BRANCH], cwd=str(REPO_DIR), check=True)
+    _STABLE = f"{BOOT_BRANCH}-stable"
+    subprocess.run(["git", "branch", _STABLE], cwd=str(REPO_DIR), check=True)
+    subprocess.run(["git", "push", "-u", "origin", _STABLE], cwd=str(REPO_DIR), check=True)
 HEAD_SHA = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(REPO_DIR), text=True).strip()
 print(
     "[boot] branch=%s sha=%s worker_start=%s diag_heartbeat=%ss"

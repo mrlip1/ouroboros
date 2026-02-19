@@ -344,8 +344,8 @@ def _push_to_github(data: dict[str, Any]) -> str:
     if not token:
         return "error: GITHUB_TOKEN not found"
 
-    user = os.environ.get("GITHUB_USER", "razzant")
-    repo = os.environ.get("GITHUB_REPO", "ouroboros")
+    user = os.environ.get("GITHUB_USER", "")
+    repo = os.environ.get("GITHUB_REPO", "")
     repo_slug = f"{user}/{repo}"
     file_path = "docs/evolution.json"
     branch = os.environ.get("GITHUB_BRANCH", "ouroboros")
