@@ -102,6 +102,27 @@ def fetch_openrouter_pricing() -> Dict[str, Tuple[float, float, float]]:
         return {}
 
 
+
+def _is_google_model(model: str) -> bool:
+    """Check if model should use native Gemini via OAuth."""
+    return model.startswith("google/") or model.startswith("gemini-")
+
+
+def _extract_gemini_model_name(model: str) -> str:
+    """Extract Gemini model name from OpenRouter format."""
+    if model.startswith("google/"):
+        return model[7:]
+    return model
+
+
+def _is_colab_environment() -> bool:
+    """Check if running in Google Colab."""
+    try:
+        import google.colab
+        return True
+    except ImportError:
+        return False
+
 class LLMClient:
     """OpenRouter API wrapper. All LLM calls go through this class."""
 
@@ -112,12 +133,16 @@ class LLMClient:
     ):
         self._api_key = api_key or os.environ.get("OPENROUTER_API_KEY", "")
         self._base_url = base_url
-        self._client = None
+        self._openrouter_client = None
+        self._gemini_configured = False
+        self._gemini_available = False
+        self._gemini_credentials = None
+        self._try_configure_gemini()
 
     def _get_client(self):
-        if self._client is None:
+        if self._openrouter_client is None:
             from openai import OpenAI
-            self._client = OpenAI(
+            self._openrouter_client = OpenAI(
                 base_url=self._base_url,
                 api_key=self._api_key,
                 default_headers={
@@ -125,7 +150,114 @@ class LLMClient:
                     "X-Title": "Ouroboros",
                 },
             )
-        return self._client
+        return self._openrouter_client
+
+
+    def _try_configure_gemini(self):
+        """Configure Gemini: Colab auth > gcloud ADC > API key."""
+        try:
+            from google.auth import default
+            from google.auth.exceptions import DefaultCredentialsError
+
+            # Method 1: Colab authentication (non-interactive)
+            if _is_colab_environment():
+                try:
+                    from google.colab import auth
+                    auth.authenticate_user()
+                    credentials, project = default()
+                    self._gemini_credentials = credentials
+                    self._gemini_configured = True
+                    self._gemini_available = True
+                    log.info("Gemini configured via Colab authentication")
+                    return
+                except Exception as e:
+                    log.debug(f"Colab auth failed: {e}")
+
+            # Method 2: Existing gcloud ADC (no interactive login)
+            try:
+                credentials, project = default()
+                self._gemini_credentials = credentials
+                self._gemini_configured = True
+                self._gemini_available = True
+                log.info("Gemini configured via gcloud ADC")
+                return
+            except DefaultCredentialsError:
+                log.debug("No gcloud ADC found")
+
+            # Method 3: API key fallback
+            import google.generativeai as genai
+            api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+            if api_key:
+                genai.configure(api_key=api_key)
+                self._gemini_configured = True
+                self._gemini_available = True
+                log.info("Gemini configured via API key")
+                return
+
+            log.debug("No Gemini auth available")
+            self._gemini_available = False
+
+        except ImportError as e:
+            log.debug(f"Gemini dependencies missing: {e}")
+            self._gemini_available = False
+        except Exception as e:
+            log.warning(f"Gemini config failed: {e}")
+            self._gemini_available = False
+
+    def _call_gemini_api(self, messages: list, model: str, max_tokens: int = 16384) -> tuple:
+        """Call Gemini with OAuth credentials or API key."""
+        import google.generativeai as genai
+
+        gemini_model_name = _extract_gemini_model_name(model)
+
+        if self._gemini_credentials:
+            import google.auth.transport.requests
+            request = google.auth.transport.requests.Request()
+            self._gemini_credentials.refresh(request)
+            genai.configure(credentials=self._gemini_credentials)
+
+        system_instruction = None
+        gemini_messages = []
+
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role == "system":
+                system_instruction = content
+            elif role == "user":
+                gemini_messages.append({"role": "user", "parts": [content]})
+            elif role == "assistant":
+                gemini_messages.append({"role": "model", "parts": [content]})
+
+        generation_config = {"max_output_tokens": max_tokens, "temperature": 1.0}
+        model_kwargs = {"model_name": gemini_model_name, "generation_config": generation_config}
+        if system_instruction:
+            model_kwargs["system_instruction"] = system_instruction
+
+        gemini_model = genai.GenerativeModel(**model_kwargs)
+
+        if len(gemini_messages) > 1:
+            history = gemini_messages[:-1]
+            chat = gemini_model.start_chat(history=history)
+            last_message = gemini_messages[-1]["parts"][0]
+            response = chat.send_message(last_message)
+        else:
+            last_message = gemini_messages[0]["parts"][0] if gemini_messages else ""
+            response = gemini_model.generate_content(last_message)
+
+        response_text = response.text if hasattr(response, 'text') else ""
+        response_msg = {"role": "assistant", "content": response_text}
+
+        usage = {}
+        if hasattr(response, 'usage_metadata'):
+            metadata = response.usage_metadata
+            usage["prompt_tokens"] = getattr(metadata, 'prompt_token_count', 0)
+            usage["completion_tokens"] = getattr(metadata, 'candidates_token_count', 0)
+            usage["total_tokens"] = getattr(metadata, 'total_token_count', 0)
+            usage["cached_tokens"] = getattr(metadata, 'cached_content_token_count', 0)
+            usage["cost"] = 0.0
+
+        return response_msg, usage
 
     def _fetch_generation_cost(self, generation_id: str) -> Optional[float]:
         """Fetch cost from OpenRouter Generation API as fallback."""
@@ -161,6 +293,16 @@ class LLMClient:
         tool_choice: str = "auto",
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """Single LLM call. Returns: (response_message_dict, usage_dict with cost)."""
+                # Try Gemini (Colab/gcloud OAuth) first for google/ models (no tools)
+        if not tools and self._gemini_available and _is_google_model(model):
+            try:
+                log.debug(f"Attempting Gemini OAuth for: {model}")
+                response_msg, usage = self._call_gemini_api(messages, model, max_tokens)
+                log.info(f"Used Gemini OAuth for {model}")
+                return response_msg, usage
+            except Exception as e:
+                log.warning(f"Gemini OAuth failed, using OpenRouter: {e}")
+
         client = self._get_client()
         effort = normalize_reasoning_effort(reasoning_effort)
 
